@@ -41,14 +41,19 @@ import com.android.systemui.screenrecord.IRecordingCallback
 import dagger.hilt.android.AndroidEntryPoint
 import io.chaldeaprjkt.gamespace.R
 import io.chaldeaprjkt.gamespace.data.AppSettings
-import io.chaldeaprjkt.gamespace.settings.SettingsActivity
 import io.chaldeaprjkt.gamespace.utils.ScreenUtils
 import io.chaldeaprjkt.gamespace.utils.dp
 import io.chaldeaprjkt.gamespace.utils.registerDraggableTouchListener
 import io.chaldeaprjkt.gamespace.utils.statusbarHeight
 import io.chaldeaprjkt.gamespace.widget.MenuSwitcher
 import io.chaldeaprjkt.gamespace.widget.PanelView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.math.max
+import kotlin.math.min
 
 @AndroidEntryPoint(Service::class)
 class GameBarService : Hilt_GameBarService() {
@@ -61,6 +66,7 @@ class GameBarService : Hilt_GameBarService() {
     @Inject
     lateinit var danmakuService: DanmakuService
 
+    private val scope = CoroutineScope(Job() + Dispatchers.Main)
     private val wm by lazy { getSystemService(WINDOW_SERVICE) as WindowManager }
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
@@ -85,9 +91,10 @@ class GameBarService : Hilt_GameBarService() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                     or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                    or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    or WindowManager.LayoutParams.FLAG_DIM_BEHIND,
             PixelFormat.TRANSLUCENT
         ).apply {
+            dimAmount = 0.7f
             width = WindowManager.LayoutParams.MATCH_PARENT
             height = WindowManager.LayoutParams.MATCH_PARENT
             layoutInDisplayCutoutMode =
@@ -143,8 +150,8 @@ class GameBarService : Hilt_GameBarService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         when (intent?.action) {
-            ACTION_STOP -> onGameLeave()
-            ACTION_START -> onGameStart()
+            ACTION_STOP -> onActionStop()
+            ACTION_START -> onActionStart()
         }
         return START_STICKY
     }
@@ -157,7 +164,7 @@ class GameBarService : Hilt_GameBarService() {
 
     override fun onDestroy() {
         danmakuService.destroy()
-        onGameLeave()
+        onActionStop()
         super.onDestroy()
     }
 
@@ -176,36 +183,24 @@ class GameBarService : Hilt_GameBarService() {
     }
 
     // for client service
-    fun onGameStart() {
+    fun onGameStart() = scope.launch { onActionStart() }
+    fun onGameLeave() = scope.launch { onActionStop() }
+
+    private fun onActionStart() {
         rootBarView.isVisible = false
         rootBarView.alpha = 0f
-        updateRootBarView()
+        if (!rootBarView.isAttachedToWindow && appSettings.showOverlay) {
+            wm.addView(rootBarView, barLayoutParam)
+        }
         handler.postDelayed(firstPaint, 500)
     }
 
-    fun onGameLeave() {
+    private fun onActionStop() {
         if (::rootPanelView.isInitialized && rootPanelView.isAttachedToWindow) {
             wm.removeViewImmediate(rootPanelView)
         }
-        if (::rootBarView.isInitialized && rootBarView.isAttachedToWindow) {
+        if (rootBarView.isAttachedToWindow) {
             wm.removeViewImmediate(rootBarView)
-        }
-    }
-
-    private fun updateRootBarView() {
-        if (!::rootBarView.isInitialized) return
-
-        // Try to remove and add the view manually to avoid animation jumps.
-        // Otherwise, use updateViewLayout
-        try {
-            if (rootBarView.isAttachedToWindow) {
-                wm.removeViewImmediate(rootBarView)
-            }
-            wm.addView(rootBarView, barLayoutParam)
-        } catch (_: RuntimeException) {
-            if (rootBarView.isAttachedToWindow) {
-                wm.updateViewLayout(rootBarView, barLayoutParam)
-            }
         }
     }
 
@@ -232,16 +227,24 @@ class GameBarService : Hilt_GameBarService() {
         recorderButton()
     }
 
+    private fun onBarDragged(dragged: Boolean) {
+        menuSwitcher.isDragged = dragged
+        if (dragged) {
+            barView.translationX = 0f
+        }
+        updateBackground()
+    }
+
     private fun updateBackground() {
         val barDragged = !barExpanded && barView.translationX == 0f
         val collapsedAtStart = !barDragged && barLayoutParam.x < 0
         val collapsedAtEnd = !barDragged && barLayoutParam.x > 0
         barView.setBackgroundResource(
             when {
-                barExpanded -> R.drawable.bar_normal
+                barExpanded -> R.drawable.bar_expanded
                 collapsedAtStart -> R.drawable.bar_collapsed_start
                 collapsedAtEnd -> R.drawable.bar_collapsed_end
-                else -> R.drawable.bar_normal
+                else -> R.drawable.bar_dragged
             }
         )
     }
@@ -268,15 +271,16 @@ class GameBarService : Hilt_GameBarService() {
             barLayoutParam.x = halfWidth
         }
 
+
         val safeArea = statusbarHeight + 4.dp
         val safeHeight = wm.maximumWindowMetrics.bounds.height() - safeArea
-        barLayoutParam.y = barLayoutParam.y.coerceIn(safeArea, safeHeight)
+        barLayoutParam.y = max(min(barLayoutParam.y, safeHeight), safeArea)
 
         updateBackground()
         updateContainerGaps()
+        updateLayout()
         menuSwitcher.showFps = if (barExpanded) false else appSettings.showFps
         menuSwitcher.updateIconState(barExpanded, barLayoutParam.x)
-        updateRootBarView()
     }
 
     private fun setupPanelView() {
@@ -324,20 +328,14 @@ class GameBarService : Hilt_GameBarService() {
         menuSwitcher.registerDraggableTouchListener(
             initPoint = { Point(barLayoutParam.x, barLayoutParam.y) },
             listener = { x, y ->
-                if (!menuSwitcher.isDragged) {
-                    menuSwitcher.isDragged = true
-                    barView.translationX = 0f
-                }
-                updateLayout {
-                    it.x = x
-                    it.y = y
-                }
-                updateBackground()
+                onBarDragged(true)
+                barLayoutParam.x = x
+                barLayoutParam.y = y
+                updateLayout()
             },
             onComplete = {
-                menuSwitcher.isDragged = false
+                onBarDragged(false)
                 dockCollapsedMenu()
-                updateBackground()
                 appSettings.x = barLayoutParam.x
                 appSettings.y = barLayoutParam.y
             }
@@ -348,10 +346,6 @@ class GameBarService : Hilt_GameBarService() {
         val actionPanel = rootBarView.findViewById<ImageButton>(R.id.action_panel)
         actionPanel.setOnClickListener {
             showPanel = !showPanel
-        }
-        actionPanel.setOnLongClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            true
         }
     }
 

@@ -2,6 +2,7 @@
 <!--
      Copyright (C) 2021 Chaldeaprjkt
                    2022 crDroid Android Project
+                   2023 EtherealOS Android Project
 
      Licensed under the Apache License, Version 2.0 (the "License");
      you may not use this file except in compliance with the License.
@@ -51,7 +52,7 @@
             android:summary="%s"
             android:title="@string/ringer_mode_title" />
 
-        <com.android.settings.custom.preference.SystemSettingSwitchPreference
+        <com.ethereal.hub.preference.SystemSettingSwitchPreference
             android:defaultValue="false"
             android:key="gamespace_suppress_fullscreen_intent"
             android:summary="@string/suppress_fullscreen_intent_summary"
@@ -81,13 +82,19 @@
             android:key="gamespace_adb_disabled"
             android:title="@string/adb_disabled_title" />
 
-        <com.android.settings.custom.preference.CustomSeekBarPreference
+        <com.ethereal.hub.preference.CustomSeekBarPreference
             android:key="gamespace_menu_opacity"
             android:title="@string/gamespace_menu_opacity_title"
             android:defaultValue="100"
             android:max="100"
             app:min="0"
             app:units="%" />
+
+        <SwitchPreference
+            android:key="gamespace_show_overlay"
+            android:summary="@string/gamespace_show_overlay_summary"
+            android:title="@string/gamespace_show_overlay_title"
+            android:defaultValue="true" />
 
     </PreferenceCategory>
 

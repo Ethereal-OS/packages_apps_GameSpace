@@ -18,7 +18,6 @@ package io.chaldeaprjkt.gamespace.utils
 import android.app.GameManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.IDeviceIdleController
 import android.os.RemoteException
@@ -82,13 +81,10 @@ class GameModeUtils @Inject constructor(private val context: Context) {
         }
     }
 
-
-    fun findAnglePackage(): ActivityInfo? {
-        val intent = Intent(ACTION_ANGLE_FOR_ANDROID)
-        val flags = PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_SYSTEM_ONLY.toLong())
-        val info = context.packageManager.queryIntentActivities(intent, flags)
-        return info.firstOrNull()?.activityInfo
-    }
+    fun findAnglePackage() = context.packageManager.queryIntentActivities(
+        Intent(ACTION_ANGLE_FOR_ANDROID),
+        PackageManager.MATCH_SYSTEM_ONLY
+    ).firstOrNull()?.activityInfo
 
     fun isAngleUsed(packageName: String?) = packageName?.let {
         DeviceConfig.getString(DeviceConfig.NAMESPACE_GAME_OVERLAY, it, null)
