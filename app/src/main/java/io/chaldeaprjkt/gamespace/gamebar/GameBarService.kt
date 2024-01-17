@@ -189,7 +189,7 @@ class GameBarService : Hilt_GameBarService() {
     private fun onActionStart() {
         rootBarView.isVisible = false
         rootBarView.alpha = 0f
-        if (!rootBarView.isAttachedToWindow && appSettings.showOverlay) {
+        if (rootBarView.isAttachedToWindow) {
             wm.addView(rootBarView, barLayoutParam)
         }
         handler.postDelayed(firstPaint, 500)
